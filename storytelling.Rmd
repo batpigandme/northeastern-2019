@@ -199,7 +199,7 @@ adv_player_stats %>%
   hrbrthemes::theme_ipsum_rc()
 ```
 
-<aside>The label placement in gghighlight uses Kamil Slowikowski's [__ggrepel__](https://github.com/slowkow/ggrepel) package, which repels overlapping text labels away from each other.</aside>
+<aside>The label placement in [__gghighlight__](https://yutannihilation.github.io/gghighlight/) uses Kamil Slowikowski's [__ggrepel__](https://github.com/slowkow/ggrepel) package, which repels overlapping text labels away from each other.</aside>
 
 Predicate functions won't always hit everything you want to see, which is why interactive visualizations can be a great tool for exploration. There are also some widgets and add-ins in RStudio that can help out with this.[^gglabeller]
 
