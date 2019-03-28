@@ -40,7 +40,8 @@ Grab the the most recent advanced metrics from [basketball reference](https://ww
 
 ```{r dummy-bref, eval = FALSE}
 library(nbastatR)
-bref_players_stats(seasons = 2019, tables = c("advanced", "totals"), widen = TRUE, assign_to_environment = TRUE)
+bref_players_stats(seasons = 2019, tables = c("advanced", "totals"), 
+                   widen = TRUE, assign_to_environment = TRUE)
 bref_advanced <- dataBREFPlayerAdvanced
 bref_totals <- dataBREFPlayerTotals
 ```
@@ -197,6 +198,8 @@ adv_player_stats %>%
        y = "DBPM") +
   hrbrthemes::theme_ipsum_rc()
 ```
+
+<aside>The label placement in gghighlight uses Kamil Slowikowski's [__ggrepel__](https://github.com/slowkow/ggrepel) package, which repels overlapping text labels away from each other.</aside>
 
 Predicate functions won't always hit everything you want to see, which is why interactive visualizations can be a great tool for exploration. There are also some widgets and add-ins in RStudio that can help out with this.[^gglabeller]
 
