@@ -1,0 +1,29 @@
+---
+title: "GSS"
+description: |
+  Some additional details about the website
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+![A Quick and Tidy Look at the 2018 GSS by Kieran Healey](https://i.imgur.com/7SOtTsf.png)
+
+<aside>
+See original article [here](https://kieranhealy.org/blog/archives/2019/03/22/a-quick-and-tidy-look-at-the-2018-gss/).
+</aside>
+
+```{r}
+library(tidyverse)
+
+library(forcats)
+library(ggrepel)
+library(haven)
+
+library(survey)
+library(srvyr)
+
+library(tools)
+```

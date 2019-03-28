@@ -1,0 +1,1103 @@
+---
+title: "Upping your storytelling game"
+description: |
+  …with help from tools that other already people made.
+---
+
+---
+title: "NBA Advanced Metrics"
+author: "Mara Averick"
+date: '`r Sys.Date()`'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, collapse = TRUE, comment = "#>", fig.retina = 2, fig.asp = .618)
+```
+
+
+```{r libs}
+library(tidyverse)
+library(glue)
+
+library(gt)
+
+library(hrbrthemes)
+library(ggpomological)
+
+library(highcharter)
+```
+
+```{r include = FALSE}
+yesterday <- lubridate::today() - 1
+bref_advanced <- read_csv(here::here("data", "dataBREFPlayerAdvanced.csv"))
+bref_totals <- read_csv(here::here("data", "dataBREFPlayerTotals.csv"))
+dataGeneralPlayers <- read_csv(here::here("data", "gen_advanced_player_tps.csv"))
+all_stars <- read_csv(here::here("data", "allstar_teams.csv"))
+```
+
+Grab the the most recent advanced metrics from [basketball reference](https://www.basketball-reference.com/) using the [**{nbastatR}**](http://asbcllc.com/nbastatR/) package by [Alex Bresler](https://twitter.com/abresler). Note, running [`bref_players_stats()`](http://asbcllc.com/nbastatR/reference/bref_players_stats.html) will assign the output data frames, `dataBREFPlayerTotals` and `dataBREFPlayerAdvanced`, to the environment, so we don't need to do anything else (I rename them for my own sanity).
+
+```{r dummy-bref, eval = FALSE}
+library(nbastatR)
+bref_players_stats(seasons = 2019, tables = c("advanced", "totals"), widen = TRUE, assign_to_environment = TRUE)
+bref_advanced <- dataBREFPlayerAdvanced
+bref_totals <- dataBREFPlayerTotals
+```
+
+I always like to start out by skimming with the [__skimr__](https://github.com/ropensci/skimr) package...
+
+```{r}
+skimr::skim(bref_advanced)
+```
+
+
+Now we can filter and munge as needed:
+
+```{r}
+adv_player_stats <- bref_advanced %>%
+  filter(minutes >= 500) %>%
+  mutate(bref_url = glue::glue("https://www.basketball-reference.com/players/{stringr::str_sub(idPlayer, 1, 1)}/{idPlayer}.html"),
+         bref_link = glue::glue('<a href="{bref_url}">{namePlayer}</a>'))
+```
+
+Collapse positions into front and backcourt:
+
+```{r pos-data}
+unique_positions <- unique(bref_advanced$idPosition)
+frontcourt <- c("PF", "SF", "C", "PF-SF", "C-PF", "SG-PF", "SF-PF")
+backcourt <- c("PG", "SG", "PG-SG", "SG-PG", "SF-SG", "SG-SF")
+
+bref_efg <- bref_totals %>%
+  select(one_of(c("idPlayer", "pctEFG")))
+
+adv_player_stats <- adv_player_stats %>%
+  left_join(bref_efg, by = "idPlayer") %>%
+  mutate( "position" = case_when(
+    idPosition %in% frontcourt ~ "frontcourt",
+    idPosition %in% backcourt ~ "backcourt",
+    TRUE ~ "other"),
+    "position" = as.factor(position)
+  )
+```
+
+Let's also get some info from the [NBA Stats API](https://stats.nba.com/) using [`teams_players_states()`](http://asbcllc.com/nbastatR/reference/teams_players_stats.html). By using `assign_to_environment = TRUE`, we'll automatically get a data frame `dataGeneralPlayers`. For now I just want players' [offensive rating](https://stats.nba.com/help/glossary/#offrtg)[^ortg], `ortg`, and [defensive rating](https://stats.nba.com/help/glossary/#defrtg)[^drtg], `drtg`.
+
+```{r eval = FALSE}
+nbastatR::teams_players_stats(seasons = 2019, types = c("player"), 
+                              tables = "general", measures = "Advanced",
+                              assign_to_environment = TRUE)
+```
+
+```{r join-ratings}
+player_rtgs <- dataGeneralPlayers %>%
+  select(one_of(c("idPlayer", "ortg", "drtg")))
+
+adv_player_stats <- adv_player_stats %>%
+  left_join(player_rtgs, by = c("idPlayerNBA" = "idPlayer"))
+```
+
+
+```{r PER-plain}
+adv_player_stats %>%
+  ggplot(aes(x = ratioPER)) +
+  geom_histogram()
+```
+
+<aside>Yikes! 
+Not looking too hot...</aside>
+
+Let's get some help from [__glue__](https://glue.tidyverse.org/) and [__hrbrthemes__](https://hrbrmstr.github.io/hrbrthemes/)...
+
+```{r PER, message = FALSE}
+adv_player_stats %>%
+  ggplot(aes(x = ratioPER)) +
+  geom_histogram(alpha = 0.7, fill = "#011627") +
+  labs(title = "PER for players with 500+ minutes",
+       subtitle = "NBA 2018-2019 season",
+       caption = glue::glue("data via nbastatR {yesterday}")) +
+  hrbrthemes::theme_ipsum_rc()
+```
+
+<aside>Note that because I update these regularly, I use [`glue::glue()`](https://glue.tidyverse.org/reference/glue.html) inside of my `caption` argument to add the date dynamically.</aside>
+
+```{r vorp, message = FALSE}
+adv_player_stats %>%
+  ggplot(aes(x = ratioVORP)) +
+  geom_histogram(alpha = 0.7, fill = "#011627") +
+  labs(title = "Value Over Replacement Player (VORP)",
+       subtitle = "NBA 2018-2019 season, players with 500+ minutes",
+       caption = glue::glue("data via nbastatR {yesterday}")) +
+  hrbrthemes::theme_ipsum_rc()
+```
+
+
+```{r win-shares, message = FALSE}
+adv_player_stats %>%
+  ggplot(aes(x = ratioWS)) +
+  geom_histogram(alpha = 0.7, fill = "#011627") +
+  labs(title = "Win Shares for players with 500+ minutes",
+       subtitle = "NBA 2018-2019 season",
+       caption = glue::glue("data via nbastatR {yesterday}")) +
+  hrbrthemes::theme_ipsum_rc()
+```
+
+Histograms are all well and good, but let's look at something a little more interesting...
+
+```{r OBPM-DBPM, fig.width = 8, fig.height = 6}
+adv_player_stats %>%
+  ggplot(aes(x = ratioOBPM, y = ratioDBPM)) +
+  geom_point() +
+  geom_hline(yintercept = 0, alpha = 0.6, lty = "dashed") +
+  geom_vline(xintercept = 0, alpha = 0.6, lty = "dashed") +
+  labs(title = "Offensive vs. Defensive Box Plus-Minus",
+       subtitle = glue::glue("NBA 2018-2019 season through {yesterday}"),
+       caption = glue::glue("data via nbastatR"),
+       x = "OBPM",
+       y = "DBPM") +
+  hrbrthemes::theme_ipsum_rc()
+```
+
+Things are a pretty boring without annotation — and we're not doing much in the way of storytelling. Luckily Hiroaki Yutani's  [__gghighlight__](https://yutannihilation.github.io/gghighlight/) package can help us out with that!
+
+<aside>For more detail on gghighlight, I highly recommend reading its vignette, [Introduction to gghighlight](https://yutannihilation.github.io/gghighlight/articles/gghighlight.html).</aside>
+
+Because gghighlight uses a _predicate_ function to determine what to highlight, I'll make a little helper fun to get the top 10 players for some variable.
+
+```{r get-top-ten, message = FALSE}
+get_top10 <- function(df, column) {
+  require(rlang)
+  column <- enquo(column)
+  dplyr::top_n(df, n = 10, wt = !!column) %>%
+    pull(namePlayer)
+}
+```
+
+Things are looking a little more complex, so let's look at the pieces of code in this next section.
+
+```{r OBPM-DBPM-highlight, fig.width = 10, fig.height = 8}
+# get top 10 for desired variable (in this case ratioBPM)
+top10_BPM <- top_n(adv_player_stats, n = 10, wt = ratioBPM) %>%
+  pull(namePlayer)
+
+adv_player_stats %>%
+  ggplot(aes(x = ratioOBPM, y = ratioDBPM)) +
+  geom_point(color = "#011627") +
+  gghighlight::gghighlight(namePlayer %in% top10_BPM, label_key = namePlayer,
+                           label_params = list(fill = ggplot2::alpha("white", 0.8),
+                                                 box.padding = 0,
+                                                 family = "Roboto Condensed"),
+                           unhighlighted_colour = "#007190") +
+  geom_hline(yintercept = 0, alpha = 0.6, lty = "dashed") +
+  geom_vline(xintercept = 0, alpha = 0.6, lty = "dashed") +
+  labs(title = "Offensive vs. Defensive Box Plus-Minus: Top 10 Box Plus/Minus",
+       subtitle = glue::glue("NBA 2018-2019 season through {yesterday}"),
+       caption = glue::glue("data via nbastatR"),
+       x = "OBPM",
+       y = "DBPM") +
+  hrbrthemes::theme_ipsum_rc()
+```
+
+Predicate functions won't always hit everything you want to see, which is why interactive visualizations can be a great tool for exploration. There are also some widgets and add-ins in RStudio that can help out with this.[^gglabeller]
+
+Since we're using [distill for R Markdown](https://rstudio.github.io/distill/figures.html), we have some nice options in terms of figure layout. Below, I'll use `layout="l-body-outset"` as a chunk parameter.
+
+```{r OWS-DWS-highlight, layout="l-body-outset", fig.width = 10, fig.height = 8}
+top10_WS <- get_top10(adv_player_stats, ratioWSPer48)
+
+adv_player_stats %>%
+  ggplot(aes(x = ratioOWS, y = ratioDWS)) +
+  geom_point(color = "#011627") +
+  gghighlight::gghighlight(namePlayer %in% top10_WS, label_key = namePlayer,
+                           label_params = list(fill = ggplot2::alpha("white", 0.8),
+                                                 box.padding = 0,
+                                                 family = "Roboto Condensed"),
+                           unhighlighted_colour = "#007190") +
+  geom_hline(yintercept = 0, alpha = 0.6, lty = "dashed") +
+  geom_vline(xintercept = 0, alpha = 0.6, lty = "dashed") +
+  labs(title = "Offensive vs. Defensive Win Shares: Top 10 WS Per 48",
+       subtitle = glue::glue("NBA 2018-2019 season through {yesterday}"),
+       caption = glue::glue("data via nbastatR"),
+       x = "OWS",
+       y = "DWS") +
+  hrbrthemes::theme_ipsum_rc()
+```
+
+We can go even wider by using `layout="l-page"`.
+
+```{r trueshooting-PER-EFG, layout="l-page", fig.width = 10, fig.height = 8}
+top10_EFG <- get_top10(adv_player_stats, pctEFG)
+
+adv_player_stats %>%
+  ggplot(aes(x = (pctTrueShooting - mean(pctTrueShooting)), y = (ratioPER - mean(ratioPER)))) +
+  geom_point(color = "#011627") +
+  gghighlight::gghighlight(namePlayer %in% top10_EFG, label_key = namePlayer,
+                           label_params = list(fill = ggplot2::alpha("white", 0.8),
+                                                 box.padding = 0,
+                                                 family = "Roboto Condensed"),
+                           unhighlighted_colour = "#007190") +
+  geom_hline(yintercept = 0, alpha = 0.6, lty = "dashed") +
+  geom_vline(xintercept = 0, alpha = 0.6, lty = "dashed") +
+  labs(title = "TS% above avg vs. PER above avg: Top 10 EFG%",
+       subtitle = glue::glue("NBA 2018-2019 season"),
+       caption = glue::glue("data via nbastatR, {yesterday}"),
+       x = "true shooting %",
+       y = "player efficiency rating") +
+  hrbrthemes::theme_ipsum_rc()
+```
+
+
+### Piping through the grammar of tables...
+
+One of my latest favorite packages to play with is [Rich Iannone](https://twitter.com/riannone)'s [**{gt}**](https://gt.rstudio.com/index.html):
+
+```{r}
+adv_player_stats %>%
+  select(namePlayer, ratioBPM, ratioOBPM, ratioDBPM, bref_url, urlPlayerThumbnail) %>%
+  arrange(desc(ratioBPM)) %>%
+  top_n(n = 10, wt = ratioBPM) %>%
+  gt::gt(rowname_col = "namePlayer") %>%
+  tab_header(
+    title = md("**Top 10 Box Plus/Minus**")
+  ) %>%
+  cols_label(
+    ratioBPM = md("**BPM**"),
+    ratioOBPM = md("**OBPM**"),
+    ratioDBPM = md("**DBPM**"),
+    bref_url = md("**Link**"),
+    urlPlayerThumbnail = md("")
+  ) %>%
+  text_transform(
+    locations = cells_data(vars(bref_url)),
+    fn = function(x) {
+      sprintf("<a href=%s>profile</a>", x)
+    }
+  ) %>%
+    text_transform(
+    locations = cells_data(vars(urlPlayerThumbnail)),
+    fn = function(x) {
+      web_image(url = x) 
+    }
+  ) %>%
+  tab_source_note(
+    md("source: [basketball-reference.com](https://www.basketball-reference.com) via [nbastatR](http://asbcllc.com/nbastatR/index.html)")
+  ) %>%
+  tab_footnote(
+    footnote = ("Players with 500+ minutes."),
+    locations = cells_title("title")
+    ) %>%
+  tab_footnote(
+    footnote = ("Box Plus/Minus: a box score estimate of the points per 100 possessions that a player contributed above a league-average player, translated to an average team."),
+    locations = cells_column_labels(
+      columns = vars(ratioBPM)
+    )
+  ) %>%
+  tab_footnote(
+    footnote = ("Offensive Box Plus/Minus."),
+    locations = cells_column_labels(
+      columns = vars(ratioOBPM)
+    )
+  ) %>%
+  tab_footnote(
+    footnote = ("Defensive Box Plus/Minus."),
+    locations = cells_column_labels(
+      columns = vars(ratioDBPM)
+    )
+  ) %>%
+  tab_options(footnote.glyph = c("*, †, ‡, §, ¶, ‖"),
+              table.width = px(640))
+```
+
+<br />
+
+```{r}
+adv_player_stats %>%
+  select(namePlayer, ratioBPM, ratioOBPM, ratioDBPM) %>%
+  arrange(desc(ratioOBPM)) %>%
+  top_n(n = 10, wt = ratioOBPM) %>%
+  gt::gt() %>%
+  tab_header(
+    title = md("**Top 10 Offensive Box Plus/Minus**")
+  ) %>%
+  cols_label(
+    namePlayer = md("**Player**"),
+    ratioBPM = md("**BPM**"),
+    ratioOBPM = md("**OBPM**"),
+    ratioDBPM = md("**DBPM**")
+  ) %>%
+  tab_source_note(
+    md("source: [basketball-reference.com](https://www.basketball-reference.com) via [nbastatR](http://asbcllc.com/nbastatR/index.html)")
+  ) %>%
+  tab_footnote(
+    footnote = ("Players with 500+ minutes."),
+    locations = cells_title("title")
+  ) %>%
+  tab_footnote(
+    footnote = ("Box Plus/Minus; a box score estimate of the points per 100 possessions that a player contributed above a league-average player, translated to an average team."),
+    locations = cells_column_labels(
+      columns = vars(ratioBPM)
+    )
+  ) %>%
+  tab_footnote(
+    footnote = ("Offensive Box Plus/Minus."),
+    locations = cells_column_labels(
+      columns = vars(ratioOBPM)
+    )
+  ) %>%
+  tab_footnote(
+    footnote = ("Defensive Box Plus/Minus."),
+    locations = cells_column_labels(
+      columns = vars(ratioDBPM)
+    )
+  ) %>%
+  tab_options(footnote.glyph = c("*, †, ‡, §, ¶, ‖"),
+              table.width = px(640))
+```
+
+<br />
+
+```{r}
+adv_player_stats %>%
+  select(namePlayer, ratioBPM, ratioOBPM, ratioDBPM) %>%
+  arrange(desc(ratioDBPM)) %>%
+  top_n(n = 10, wt = ratioDBPM) %>%
+  gt::gt() %>%
+  tab_header(
+    title = md("**Top 10 Defensive Box Plus/Minus**")
+  ) %>%
+  cols_label(
+    namePlayer = md("**Player**"),
+    ratioBPM = md("**BPM**"),
+    ratioOBPM = md("**OBPM**"),
+    ratioDBPM = md("**DBPM**")
+  ) %>%
+  tab_source_note(
+    md("source: [basketball-reference.com](https://www.basketball-reference.com) via [nbastatR](http://asbcllc.com/nbastatR/index.html)")
+  ) %>%
+  tab_footnote(
+    footnote = ("Players with 500+ minutes."),
+    locations = cells_title("title")
+  ) %>%
+  tab_footnote(
+    footnote = ("Box Plus/Minus; a box score estimate of the points per 100 possessions that a player contributed above a league-average player, translated to an average team."),
+    locations = cells_column_labels(
+      columns = vars(ratioBPM)
+    )
+  ) %>%
+  tab_footnote(
+    footnote = ("Offensive Box Plus/Minus."),
+    locations = cells_column_labels(
+      columns = vars(ratioOBPM)
+    )
+  ) %>%
+  tab_footnote(
+    footnote = ("Defensive Box Plus/Minus."),
+    locations = cells_column_labels(
+      columns = vars(ratioDBPM)
+    )
+  ) %>%
+  tab_options(footnote.glyph = c("*, †, ‡, §, ¶, ‖"),
+              table.width = px(640))
+```
+
+### Highcharts
+
+Messing around with [highcharts](https://www.highcharts.com/) courtesy of [Joshua Kunst](https://twitter.com/jbkunst)'s [**{highcharter}**](http://jkunst.com/highcharter/index.html) package.
+
+```{r}
+library(highcharter)
+```
+
+```{r}
+hchart(adv_player_stats, "scatter", hcaes(x = "ratioOBPM", y = "ratioDBPM", group = "position", name = "namePlayer", OBPM = "ratioOBPM", DBPM = "ratioDBPM", position = "position")) %>%
+  hc_tooltip(pointFormat = "<b>{point.name}</b><br />OBPM: {point.OBPM}<br />DBPM: {point.DBPM}") %>%
+  hc_title(text = "Offensive vs. Defensive Box Plus/Minus") %>%
+  hc_subtitle(text = "NBA 2018-2019 Season") %>%
+  hc_credits(enabled = TRUE,
+             text = "data via nbastatR",
+             style = list(
+               fontSize = "10px"
+               )
+             ) %>%
+  hc_add_theme(hc_theme_538())
+```
+
+```{r}
+hchart(adv_player_stats, "scatter", hcaes(x = "ratioOWS", y = "ratioDWS", group = "position", name = "namePlayer", OWS = "ratioOWS", DWS = "ratioDWS", position = "position")) %>%
+  hc_tooltip(pointFormat = "<b>{point.name}</b><br />OWS: {point.OWS}<br />DWS: {point.DWS}") %>%
+  hc_title(text = "Offensive vs. Defensive Win Shares") %>%
+  hc_subtitle(text = "NBA 2018-2019 Season") %>%
+  hc_credits(enabled = TRUE,
+             text = "data via nbastatR",
+             style = list(
+               fontSize = "10px"
+               )
+             ) %>%
+  hc_add_theme(hc_theme_economist())
+```
+
+```{r}
+hchart(adv_player_stats, "scatter", 
+       hcaes(x = "pctTrueShooting", y = "ratioPER",
+             name = "namePlayer", TS = "pctTrueShooting", 
+             PER = "ratioPER", position = "position")) %>%
+  hc_tooltip(pointFormat = "<b>{point.name}</b><br />TS%: {point.TS}<br />PER: {point.PER}<br />Position: {point.position}") %>%
+  hc_title(text = "True Shooting % vs Player Efficiency Rating") %>%
+  hc_subtitle(text = "NBA 2018-2019 Season") %>%
+  hc_credits(enabled = TRUE,
+             text = "data via nbastatR",
+             style = list(
+               fontSize = "14px"
+               )
+             ) %>%
+  hc_add_theme(hc_theme_chalk(
+    plotOptions = list(
+      scatter = list(
+        marker = list(radius = 4,
+                      fillOpacity = 0.3) # actually this does nothing
+        )
+      )
+    )
+  )
+```
+
+
+```{r}
+hc <- hchart(adv_player_stats, "scatter", hcaes(x = "ratioOWS", y = "ratioDWS", group = "position", name = "namePlayer", OWS = "ratioOWS", DWS = "ratioDWS", Position = "position")) %>%
+  hc_tooltip(pointFormat = "<b>{point.name}</b><br />OWS: {point.OWS}<br />DWS: {point.DWS}") %>%
+  hc_title(text = "Offensive vs. Defensive Win Shares") %>%
+  hc_subtitle(text = "NBA 2018-2019 Season") %>%
+  hc_credits(enabled = TRUE,
+             text = "by @dataandme data via nbastatR",
+             href = "https://github.com/abresler/nbastatR",
+             style = list(
+               fontSize = "10px",
+               color = "#4a4a4a"
+               )
+             ) 
+```
+
+
+```{r}
+hc2 <- hchart(adv_player_stats, "scatter", 
+       hcaes(x = "ortg", y = "drtg", group = "position",
+             name = "namePlayer", ortg = "ortg", 
+             drtg = "drtg", position = "position")) %>%
+  hc_tooltip(pointFormat = "<b>{point.name}</b><br />ORTG: {point.ortg}<br />DRTG: {point.drtg}<br />Position: {point.position}") %>%
+  hc_title(text = "Offensive vs. Defensive Rating") %>%
+  hc_subtitle(text = "NBA 2018-2019 Season") %>%
+  hc_credits(enabled = TRUE,
+             text = "data via nbastatR",
+             style = list(
+               fontSize = "14px"
+               )
+             )
+```
+
+Playing with palettes and themeing...
+
+```{r include = FALSE}
+tolmod_pal <- c("#77aadd",
+                "#ee8866",
+                "#bbcc33",
+                "#eedd88",
+                "#ffaabb",
+                "#99ddff",
+                "#dddddd")
+
+pt_pal <- c("#ffba82",
+            "#94a7c4",
+            "#d85d27",
+            "#8c9f97",
+            "#4c6c9c")
+
+littleowl_pal <- c("#c792ea",
+                   "#addb67",
+                   "#5f7e97",
+                   "#f78c6c",
+                   "#7fdbca",
+                   "#ffeb95",
+                   "#82aaff")
+
+semiotic_pal <- c("#b6a756",
+                  "#b3331d",
+                  "#007190",
+                  "#d38779",
+                  "#00a2ce",
+                  "#4d430c")
+
+hrbr_pal <- c("#d18975", 
+              "#8fd175", 
+              "#3f2d54", 
+              "#75b8d1", 
+              "#2d543d", 
+              "#c9d175", 
+              "#d1ab75", 
+              "#d175b8", 
+              "#758bd1")
+```
+
+
+Here's a figure that Highcharts had in its documentation that I _very much_ wish I'd found _before_ I started mucking about with making my own themes.
+
+![Highcharts: Design and Style - Chart positioning ](https://www.highcharts.com/images/docs/chartPosition.png)
+
+```{r include = FALSE}
+hrbrish <- hc_theme(
+  colors = plotly::toRGB(littleowl_pal, alpha = 0.8),
+      chart = list(
+        backgroundColor = "#f9f9f9",
+        spacingTop = 30,
+        marginRight = 40,
+        spacingRight = 30,
+        marginBottom = 80,
+        spacingBottom = 30,
+        spacingLeft = 20,
+        style = list(
+          fontFamily = "Roboto Condensed",
+          color = "#000000"
+        )
+      ),
+      title = list(
+        align = "left",
+        x = 30,
+        style = list(
+          fontFamily = "Roboto Condensed",
+          fontWeight = "bold",
+          fontSize = "22px"
+        )
+      ),
+      subtitle = list(
+        align = "left",
+        x = 30,
+        margin = 10,
+        style = list(
+          fontFamily = "Roboto Condensed",
+          fontWeight = "light",
+          fontSize = "16px"
+        )
+      ),
+  legend = list(
+    align = "left",
+    floating = "true",
+    verticalAlign = "bottom",
+    x = 15,
+    y = 10,
+    itemStyle = list(
+      fontSize = "10px",
+      fontWeight = "bold"
+      )
+    ),
+      xAxis = list(
+        gridLineColor = "#cccccc",
+        gridLineWidth =  0.5,
+        minorGridLineColor = "transparent",
+        minoGridLineWidth =  0.5,
+        tickColor = "#f9f9f9",
+        tickLength = 0,
+        minorTickColor = "#f9f9f9",
+        lineColor = "transparent",
+        labels = list(
+          align = "right"
+        )
+      ),
+      yAxis = list(
+        gridLineColor = "#cccccc", 
+        gridLineWidth =  0.5,
+        minorGridLineColor = "transparent", 
+        minoGridLineWidth =  0.5,
+        tickColor = "#f9f9f9",
+        tickLength = 0,
+        minorTickColor = "#f9f9f9",
+        lineColor = "transparent",
+        labels = list(
+          align = "right"
+        )
+      ),
+    tooltip = list(
+      backgroundColor = "#ececec"
+    ),
+  credits = list(
+    enabled = TRUE,
+    position = list(
+      x = -15,  # highcharts default: -10
+      y = -10   # highchart default: -5
+    ),
+    style = list(
+      fontFamily = "Roboto Condensed",
+      fontSize = "10px",
+      color = "#4a4a4a",
+      fontWeight = "light"
+    ),
+    scatter = list(
+      allowPointSelect = TRUE
+    )
+  )
+)
+```
+
+```{r}
+hc %>%
+  hc_add_theme(hrbrish)
+```
+
+```{r}
+hc2 %>%
+  hc_add_theme(hc_theme_bloom())
+```
+
+### Getting pomological `r emo::ji("tomato")`
+
+Add pomological palettes from Garrick Aden-Buie's [**{ggpomological}**](https://github.com/gadenbuie/ggpomological) package: 
+
+```{r}
+# source: https://github.com/gadenbuie/ggpomological/blob/master/R/scale_pomological.R
+pomological_palette <- c(
+   "#c03728" #red
+  ,"#919c4c" #green darkish
+  ,"#fd8f24" #orange brighter
+  ,"#f5c04a" #yelloww
+  ,"#e68c7c" #pink
+  ,"#828585" #light grey
+  ,"#c3c377" #green light
+  ,"#4f5157" #darker blue/grey
+  ,"#6f5438" #lighter brown
+)
+
+pomological_base <- list(
+  "paper"       = "#fffeea",
+  "paper_alt"   = "#f8eed1",
+  "light_line"  = "#efe1c6",
+  "medium_line" = "#a89985",
+  "darker_line" = "#6b452b",
+  "black"       = "#3a3e3f",
+  "dark_blue"   = "#2b323f"
+)
+
+#' Pomological Color and Fill Scales
+#' 
+#' Color scales based on the USDA Pomological Watercolors paintings.
+#' 
+#' @references https://usdawatercolors.nal.usda.gov/pom
+#' @seealso [ggplot2::scale_colour_discrete] [ggplot2::scale_fill_discrete]
+#' @inheritDotParams ggplot2::discrete_scale
+#' @name scale_pomological
+NULL
+
+pomological_pal <- function() scales::manual_pal(pomological_palette)
+
+#' @rdname scale_pomological
+#' @export
+scale_colour_pomological <- function(...) ggplot2::discrete_scale("colour", "pomological", pomological_pal(), ...)
+
+#' @rdname scale_pomological
+#' @export
+scale_color_pomological <- scale_colour_pomological
+
+#' @rdname scale_pomological
+#' @export
+scale_fill_pomological <- function(...) ggplot2::discrete_scale('fill', 'pomological', pomological_pal(), ...)
+```
+
+
+```{r olden-timey}
+#' Olden timey theme for highcharts
+#' 
+#' @param ... Named argument to modify the theme
+#' 
+#' @examples
+#' 
+#' highcharts_demo() %>% 
+#'   hc_add_theme(hc_theme_oldentimey())
+#' 
+#' @importFrom grDevices colorRampPalette 
+#' @export
+hc_theme_oldentimey <- function(...){
+  
+  theme <-   
+  list(
+    colors = pomological_palette,
+    chart = list(
+      divBackgroundImage = "https://raw.githubusercontent.com/gadenbuie/ggpomological/master/inst/images/pomological_background.png",
+      backgroundColor = "transparent",
+      plotBorderColor = pomological_base$paper,
+      colorAxis = list(
+        gridLineColor = pomological_base$darker_line
+      ),
+      style = list(
+        fontFamily = "Homemade Apple",
+        color = pomological_base$dark_blue
+      )
+    ),
+    plotOptions = list(
+      scatter = list(
+        marker = list(
+          radius = 4
+        )
+      )
+    ),
+    title = list(
+      style = list(
+        fontSize = "22px",
+        color = pomological_base$dark_blue
+      )
+    ),
+    subtitle = list(
+      style = list(
+        fontSize = "18px",
+        color = pomological_base$dark_blue
+      )
+    ),
+    legend = list(
+      enabled = TRUE,
+      itemStyle = list(
+        fontSize = "14px",
+        fontWeight = "light",
+        color = pomological_base$dark_blue
+      )
+    ),
+   credits = list(
+    enabled = TRUE,
+    position = list(
+      x = -15,  # highcharts default: -10
+      y = -10   # highchart default: -5
+    ),
+    style = list(
+      fontFamily = "Mr De Haviland",
+      fontSize = "18px",
+      color = pomological_base$dark_blue,
+      fontWeight = "light"
+    ),
+    xAxis = list(
+      lineWidth = 1,
+      tickWidth = 1,
+      gridLineColor = "transparent",
+      labels = list(
+        enabled = TRUE,
+        style = list(
+          color = pomological_base$dark_blue,
+          fontSize = "18px"
+        )
+      ),
+      # x-axis title
+      title = list(
+        enabled = TRUE,
+        style = list(
+          color = pomological_base$dark_blue,
+          fontSize = "18px"
+          
+        )
+      )
+    ),
+    yAxis = list(
+      lineWidth = 1,
+      tickWidth = 1,
+      gridLineColor = "transparent",
+      labels = list(
+        enabled = TRUE,
+        style = list(
+          color = pomological_base$dark_blue,
+          fontSize = "18px"
+        )
+      ),
+      # y-axis title
+      title = list(
+        enabled = TRUE,
+        style = list(
+          color = pomological_base$dark_blue,
+          fontSize = "18px"
+          
+        )
+      )
+    ),
+    tooltip = list(
+      backgroundColor = "#f8eed1",
+      style = list(
+        color = pomological_base$dark_blue,
+        fontSize = "18px",
+        padding = "10px"
+      )
+    )
+  ))
+  
+  theme <- structure(theme, class = "hc_theme")
+  
+  if (length(list(...)) > 0) {
+    theme <- hc_theme_merge(
+      theme,
+      hc_theme(...)
+    )
+  } 
+  
+  theme
+}
+```
+
+```{r include=FALSE}
+# source: https://github.com/gadenbuie/ggpomological/blob/master/R/theme_pomological.R
+#' @describeIn theme_pomological A "fancy" pomological theme with fancy fonts
+#' @export
+theme_pomological_fancy <- function(base_family = "Homemade Apple", base_size = 16, ...) {
+  theme_pomological(base_family, base_size, ...)
+}
+
+font_urls <- data.frame(
+  name = c("Mr De Haviland", "Homemade Apple", "Marck Script", "Mr. Bedfort"),
+  url  = c(
+    "https://fonts.google.com/specimen/Mr+De+Haviland",
+    "https://fonts.google.com/specimen/Homemade+Apple/",
+    "https://fonts.google.com/specimen/Marck+Script/",
+    "https://fonts.google.com/specimen/Mr+Bedfort/"
+  )
+)
+
+check_font <- function(font_name) {
+  if (!requireNamespace("extrafont", quietly = TRUE)) {
+    warning("The font \"", font_name, "\" may or may not be installed on your system.",
+            "Please install the package `extrafont` if you'd like me to be able to check for you.",
+            call. = FALSE)
+  } else {
+    if (!font_name %in% extrafont::fonts()) {
+      if (font_name %in% font_urls$name) {
+        warning("Font '", font_name, "' isn't in the extrafont font list (but it may still work). ", 
+                "If recently installed, you can try running `extrafont::font_import()`. ",
+                "To install, visit: ", font_urls[font_urls$name == font_name, "url"],
+                call. = FALSE)
+      } else {
+        warning("Font '", font_name, "' isn't in the extrafont font list (but it may still work). ", 
+                "If recently installed, you can try running `extrafont::font_import()`. ",
+                call. = FALSE)
+      }
+    }
+  }
+}
+```
+
+
+```{r}
+hc2 %>%
+  hc_add_theme(hc_theme_oldentimey())
+```
+
+Since the scattered points don't take an `alpha` param, let's see if we can make things work using `rgba` colours (in this example we'll set opacity to 70%)[^col2rgb]:
+
+```{r}
+pom_pal_70 <- c(
+  "rgba(192, 55, 40, 0.7)", # red
+  "rgba(145, 156, 76, 0.7)", # green darkish
+  "rgba(253, 143, 36, 0.7)", # orange brighter
+  "rgba(245, 192, 74, 0.7)", # yellow
+  "rgba(230, 140, 124, 0.7)", # pink
+  "rgba(130, 133, 133, 0.7)", # light grey
+  "rgba(195, 195, 119, 0.7)", # green light
+  "rgba(79, 81, 87, 0.7)", # darker blue/grey
+  "rgba(111, 84, 56, 0.7)" # lighter brown
+)
+```
+
+Note: this could easily be a function where you pass in the alpha as a parameter and modify an rgb() color to become an rgba() one with the appropriate setting.
+
+Actually, turns out there's a function that would've basically done this for me… You can start off with Garrick's `pomological_palette`, and then use [`col2rgb()`](https://stat.ethz.ch/R-manual/R-devel/library/grDevices/html/col2rgb.html) to convert the colours appropriately.
+
+```{r}
+pomological_palette <- c(
+   "#c03728" #red
+  ,"#919c4c" #green darkish
+  ,"#fd8f24" #orange brighter
+  ,"#f5c04a" #yelloww
+  ,"#e68c7c" #pink
+  ,"#828585" #light grey
+  ,"#c3c377" #green light
+  ,"#4f5157" #darker blue/grey
+  ,"#6f5438" #lighter brown
+)
+
+rgb_pom_pal <- as_tibble(grDevices::col2rgb(pomological_palette), .name_repair = "universal")
+
+rgb_pom_pal <- as.data.frame(rgb_pom_pal)
+
+
+rownames(rgb_pom_pal) <- c("red", "green", "blue")
+
+rgb_pom_pal <- rgb_pom_pal %>% 
+  rownames_to_column()
+```
+
+Just one minor problem...the shape.
+
+```{r}
+rgb_pom_pal <- rgb_pom_pal %>%
+  gather(color, measure, ...1:...9)
+
+# note, obviously you could dynamically deal with opacity, 
+# and not just hard-code it...
+rgb_pom_pal <- rgb_pom_pal %>% 
+  spread(rowname, measure) %>%
+  select(one_of(c("color", "red", "green", "blue"))) %>%
+  mutate("rgb" = glue::glue("rgb({red}, {green}, {blue})"),
+         "rgba" = glue::glue("rgba({red}, {green}, {blue}, 0.8)"))
+
+rgb_pom_pal
+```
+
+After all of this, I discovered there's actually a function, [`plotly::toRGB()`](https://rdrr.io/cran/plotly/man/toRGB.html), which deals with the rgb matrix from `grDevices:col2rgb()`, and outputs in the format `"rgba(70,130,180,1)"`. So, in the end that's probably the best bet. 
+
+```{r}
+plotly::toRGB(x = "red", alpha = 0.8)
+plotly::toRGB(x = "#c03728", alpha = 0.8)
+```
+
+All of that code above could've basically been:
+
+```{r}
+rgba_pomological_pal <- plotly::toRGB(pomological_palette, alpha = 0.8)
+```
+
+
+```{r}
+hc_theme_oldentimey_alpha <- function(...){
+  
+  theme <-   
+  list(
+    colors = rgba_pomological_pal,
+    chart = list(
+      divBackgroundImage = "https://raw.githubusercontent.com/gadenbuie/ggpomological/master/inst/images/pomological_background.png",
+      spacingTop = 30,
+      backgroundColor = "transparent",
+      plotBorderColor = pomological_base$paper,
+      colorAxis = list(
+        gridLineColor = pomological_base$darker_line
+      ),
+      style = list(
+        fontFamily = "Homemade Apple",
+        color = pomological_base$dark_blue
+      )
+    ),
+    plotOptions = list(
+      scatter = list(
+        marker = list(
+          radius = 4
+        )
+      )
+    ),
+    title = list(
+      style = list(
+        fontSize = "22px",
+        color = pomological_base$dark_blue
+      )
+    ),
+    subtitle = list(
+      style = list(
+        fontSize = "18px",
+        color = pomological_base$dark_blue
+      )
+    ),
+    legend = list(
+      enabled = TRUE,
+      itemStyle = list(
+        fontSize = "14px",
+        fontWeight = "light",
+        color = pomological_base$dark_blue
+      )
+    ),
+   credits = list(
+    enabled = TRUE,
+    position = list(
+      x = -15,  # highcharts default: -10
+      y = -10   # highchart default: -5
+    ),
+    style = list(
+      fontFamily = "Mr De Haviland",
+      fontSize = "18px",
+      color = pomological_base$dark_blue,
+      fontWeight = "light"
+    ),
+    xAxis = list(
+      lineWidth = 1,
+      tickWidth = 1,
+      gridLineColor = "transparent",
+      labels = list(
+        enabled = TRUE,
+        style = list(
+          color = pomological_base$dark_blue,
+          fontSize = "18px"
+        )
+      ),
+      # x-axis title
+      title = list(
+        enabled = TRUE,
+        style = list(
+          color = pomological_base$dark_blue,
+          fontSize = "18px"
+          
+        )
+      )
+    ),
+    yAxis = list(
+      lineWidth = 1,
+      tickWidth = 1,
+      gridLineColor = "transparent",
+      labels = list(
+        enabled = TRUE,
+        style = list(
+          color = pomological_base$dark_blue,
+          fontSize = "18px"
+        )
+      ),
+      # y-axis title
+      title = list(
+        enabled = TRUE,
+        style = list(
+          color = pomological_base$dark_blue,
+          fontSize = "18px"
+          
+        )
+      )
+    ),
+    tooltip = list(
+      backgroundColor = "#f8eed1",
+      style = list(
+        color = pomological_base$dark_blue,
+        fontSize = "18px",
+        padding = "10px"
+      )
+    )
+  ))
+  
+  theme <- structure(theme, class = "hc_theme")
+  
+  if (length(list(...)) > 0) {
+    theme <- hc_theme_merge(
+      theme,
+      hc_theme(...)
+    )
+  } 
+  
+  theme
+}
+```
+
+```{r}
+hc %>%
+  hc_add_theme(hc_theme_oldentimey_alpha())
+```
+
+
+## All this made possible by...
+
+```{r}
+thankr::shoulders()
+```
+
+### Reproducibility
+
+```{r}
+devtools::session_info()
+```
+
+[^gglabeller]: Alicia Schep's [__gglabeller__](https://github.com/AliciaSchep/gglabeller) package is definitely worth a look.
+[^ortg]: Measures a team's points scored per 100 possessions. On a player level this statistic is team points scored per 100 possessions while he is on court.
+[^drtg]: The number of points allowed per 100 possessions by a team. For a player, it is the number of points per 100 possessions that the team allows while that individual player is on the court.
+[^col2rgb]: TIL, there's a function in `grDevices` called [`col2rgb()`](https://stat.ethz.ch/R-manual/R-devel/library/grDevices/html/col2rgb.html) — so, yeah, that's pretty cool.
+
+
