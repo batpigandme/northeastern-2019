@@ -98,6 +98,7 @@ adv_player_stats <- adv_player_stats %>%
   left_join(player_rtgs, by = c("idPlayerNBA" = "idPlayer"))
 ```
 
+<aside>__PER__ stands for Player Efficiency Rating.</aside>
 
 ```{r PER-plain}
 adv_player_stats %>%
@@ -315,7 +316,7 @@ adv_player_stats %>%
 
 ```{r}
 adv_player_stats %>%
-  select(namePlayer, ratioBPM, ratioOBPM, ratioDBPM) %>%
+  select(urlPlayerHeadshot, namePlayer, ratioBPM, ratioOBPM, ratioDBPM) %>%
   arrange(desc(ratioOBPM)) %>%
   top_n(n = 10, wt = ratioOBPM) %>%
   gt::gt() %>%
@@ -324,9 +325,16 @@ adv_player_stats %>%
   ) %>%
   cols_label(
     namePlayer = md("**Player**"),
+    urlPlayerHeadshot = md(""),
     ratioBPM = md("**BPM**"),
     ratioOBPM = md("**OBPM**"),
     ratioDBPM = md("**DBPM**")
+  ) %>%
+    text_transform(
+    locations = cells_data(vars(urlPlayerHeadshot)),
+    fn = function(x) {
+      web_image(url = x) 
+    }
   ) %>%
   tab_source_note(
     md("source: [basketball-reference.com](https://www.basketball-reference.com) via [nbastatR](http://asbcllc.com/nbastatR/index.html)")
@@ -358,6 +366,7 @@ adv_player_stats %>%
 ```
 
 <br />
+<aside>Using the [`web_image()`](https://gt.rstudio.com/reference/web_image.html) function, I can add pictures of the players to the tables.</aside>
 
 ```{r}
 adv_player_stats %>%
